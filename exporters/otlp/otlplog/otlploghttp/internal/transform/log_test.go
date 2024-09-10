@@ -301,6 +301,7 @@ func TestResourceLogsPerResource(t *testing.T) {
 		}
 	}
 }
+
 func TestSeverityNumber(t *testing.T) {
 	for i := 0; i <= int(api.SeverityFatal4); i++ {
 		want := lpb.SeverityNumber(i)
