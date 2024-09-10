@@ -16,6 +16,7 @@ import (
 	lpb "go.opentelemetry.io/proto/otlp/logs/v1"
 	rpb "go.opentelemetry.io/proto/otlp/resource/v1"
 
+	"go.opentelemetry.io/otel/attribute"
 	api "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
 	"go.opentelemetry.io/otel/sdk/log"
@@ -231,6 +232,48 @@ func TestSeverityNumber(t *testing.T) {
 		want := lpb.SeverityNumber(i)
 		want += lpb.SeverityNumber_SEVERITY_NUMBER_UNSPECIFIED
 		assert.Equal(t, want, SeverityNumber(api.Severity(i)))
+	}
+}
+
+func TestResourceLogsPerResource(t *testing.T) {
+	res1 := resource.NewWithAttributes(
+		semconv.SchemaURL,
+		attribute.KeyValue{
+			Key:   "service.name",
+			Value: attribute.StringValue("service1"),
+		},
+	)
+	res2 := resource.NewWithAttributes(
+		semconv.SchemaURL,
+		attribute.KeyValue{
+			Key:   "service.name",
+			Value: attribute.StringValue("service2"),
+		},
+	)
+
+	records = func() []log.Record {
+		var out []log.Record
+		out = append(out, logtest.RecordFactory{
+			Timestamp:            ts,
+			ObservedTimestamp:    obs,
+			Body:                 bodyA,
+			Attributes:           []api.KeyValue{alice},
+			Resource:             res1,
+		}.NewRecord())
+
+		out = append(out, logtest.RecordFactory{
+			Timestamp:            ts,
+			ObservedTimestamp:    obs,
+			Body:                 bodyB,
+			Attributes:           []api.KeyValue{bob},
+			Resource:             res2,
+		}.NewRecord())
+		return out
+	}()
+
+	rLogs := ResourceLogs(records)
+	for _, r := range rLogs {
+		assert.Equal(t, 1, len(r.ScopeLogs[0].LogRecords))
 	}
 }
 
