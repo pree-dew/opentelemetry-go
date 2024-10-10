@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
@@ -490,4 +491,54 @@ func TestExemplars(t *testing.T) {
 		measure(sampled, m)
 		check(t, r, nCPU, 1, 20)
 	})
+}
+
+func TestPipelineWithMultipleReaders(t *testing.T) {
+	exp := &fnExporter{}
+	r1 := NewPeriodicReader(exp, WithInterval(5*time.Second))
+	r2 := NewPeriodicReader(exp, WithInterval(1*time.Second))
+
+	mp := NewMeterProvider(WithReader(r1), WithReader(r2))
+	m := mp.Meter("test")
+	measure := func(ctx context.Context, m metric.Meter) {
+		i, err := m.Int64Counter("int64-counter")
+		require.NoError(t, err)
+		i.Add(ctx, 1)
+
+		oc, err := m.Int64ObservableCounter("int64-observable-counter")
+		require.NoError(t, err)
+		// register a callback and call it
+
+		var val int64 = 2
+		_, err = m.RegisterCallback(
+			// SDK periodically calls this function to collect data.
+			func(ctx context.Context, o metric.Observer) error {
+				o.ObserveInt64(oc, val)
+				return nil
+			}, oc)
+		require.NoError(t, err)
+		time.Sleep(2 * time.Second)
+	}
+
+	ctx := context.Background()
+	measure(ctx, m)
+
+	rm1 := new(metricdata.ResourceMetrics)
+	require.NoError(t, r1.Collect(ctx, rm1))
+
+	require.Len(t, rm1.ScopeMetrics, 1, "ScopeMetrics")
+	sm1 := rm1.ScopeMetrics[0]
+	require.Len(t, sm1.Metrics, 2, "Metrics")
+
+	for ix, m := range sm1.Metrics {
+		if ix == 0 {
+			require.IsType(t, metricdata.Sum[int64]{}, m.Data, m.Name)
+			sum := m.Data.(metricdata.Sum[int64])
+			assert.Equal(t, int64(1), sum.DataPoints[0].Value)
+		} else {
+			require.IsType(t, metricdata.Sum[int64]{}, m.Data, m.Name)
+			sum := m.Data.(metricdata.Sum[int64])
+			assert.Equal(t, int64(2), sum.DataPoints[0].Value)
+		}
+	}
 }
